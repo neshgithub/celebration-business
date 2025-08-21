@@ -1,0 +1,260 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// NextAuth.js models
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([sessionToken])
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verificationtokens")
+}
+
+// Application models
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum PlanType {
+  BASIC
+  PREMIUM
+  LUXURY
+}
+
+enum PlanStatus {
+  ACTIVE
+  INACTIVE
+  CANCELLED
+}
+
+enum PaymentMethod {
+  UPI
+  CARD
+  NET_BANKING
+  WALLET
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum ReceiptStatus {
+  GENERATED
+  SENT
+  DELIVERED
+  FAILED
+}
+
+enum NotificationType {
+  EMAIL
+  SMS
+  BOTH
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  role          UserRole  @default(USER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  accounts    Account[]
+  sessions    Session[]
+  userPlans   UserPlan[]
+  payments    Payment[]
+  receipts    Receipt[]
+  activities  Activity[]
+
+  @@index([email])
+  @@index([role])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model Plan {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  type        PlanType
+  description String?
+  features    Json // JSON array of features
+  price       Decimal  @db.Decimal(10, 2)
+  currency    String   @default("INR")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  userPlans UserPlan[]
+  payments  Payment[]
+
+  @@index([type])
+  @@index([isActive])
+  @@map("plans")
+}
+
+model UserPlan {
+  id        String     @id @default(cuid())
+  userId    String
+  planId    String
+  status    PlanStatus @default(ACTIVE)
+  startDate DateTime   @default(now())
+  endDate   DateTime?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan Plan @relation(fields: [planId], references: [id])
+
+  @@unique([userId, planId, status])
+  @@index([userId])
+  @@index([planId])
+  @@index([status])
+  @@index([startDate, endDate])
+  @@map("user_plans")
+}
+
+model Payment {
+  id                String        @id @default(cuid())
+  userId            String
+  planId            String
+  amount            Decimal       @db.Decimal(10, 2)
+  currency          String        @default("INR")
+  method            PaymentMethod
+  status            PaymentStatus @default(PENDING)
+  transactionId     String?       @unique
+  paymentGatewayId  String?
+  metadata          Json?
+  failureReason     String?
+  processedAt       DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  // Relations
+  user     User      @relation(fields: [userId], references: [id])
+  plan     Plan      @relation(fields: [planId], references: [id])
+  receipts Receipt[]
+
+  @@index([userId])
+  @@index([planId])
+  @@index([status])
+  @@index([transactionId])
+  @@index([method])
+  @@index([createdAt])
+  @@map("payments")
+}
+
+model Receipt {
+  id               String        @id @default(cuid())
+  receiptNumber    String        @unique
+  userId           String
+  paymentId        String
+  amount           Decimal       @db.Decimal(10, 2)
+  currency         String        @default("INR")
+  status           ReceiptStatus @default(GENERATED)
+  pdfPath          String?
+  htmlContent      String?       @db.Text
+  sentAt           DateTime?
+  notificationType NotificationType?
+  emailSent        Boolean       @default(false)
+  smsSent          Boolean       @default(false)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  // Relations
+  user    User    @relation(fields: [userId], references: [id])
+  payment Payment @relation(fields: [paymentId], references: [id])
+
+  @@index([userId])
+  @@index([paymentId])
+  @@index([receiptNumber])
+  @@index([status])
+  @@index([createdAt])
+  @@map("receipts")
+}
+
+model Activity {
+  id          String   @id @default(cuid())
+  userId      String
+  action      String
+  description String?
+  metadata    Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("activities")
+}
+
+model SystemConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   @db.Text
+  category  String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+  @@index([category])
+  @@map("system_config")
+}
